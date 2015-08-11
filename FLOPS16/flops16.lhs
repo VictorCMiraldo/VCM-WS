@@ -402,20 +402,49 @@ holles! We can lift definitions whose arguments are all holes, to a single hole.
 g_\square = g_1 \cap g_2 = (x \; \cons\; \square\; \conc\; \square) \stackrel{lift}{\rightarrow} (x \; \cons\; \square)
 \]
 
+Term intersection and lifting are easily defined by recursion on terms. The type
+signature for the aforementioned operations are as follows.
 
+%format cap = "\cap"
+%format tlift = "\uparrow"
+\vskip 1em
+\begin{code}
+_ cap _ : {A : Set}{{ eqA : Eq A }} 
+        -> RTerm A -> RTerm A -> RTerm (Maybe A)
+        
+_ tlift : forall {a}{A : Set a} -> RTerm (Maybe A) -> RTerm (Maybe A)
+\end{code}
+\vskip 1em
 
+Here, we already have ways of infering the context under which the rewrite happens. We
+also have the lemma that is going to be applied. Now, it is a matter of figuring out the
+parameters that need to be supplied to the lemma.
 
+The context, $g_\square$, can be seen as a road-map. It makes sense to be able
+to compute the difference of a given term and $g_\square$. That is,
+$g_\square - g_2 \equiv xs \conc (ys \conc zs)$. This operation is defined by
+recursion on both terms. While we keep seeing equal  constructors, we keep traversing.
+When we find the hole, we return the second term. If a diffence is encountered, we return
+|nothing|.
+
+Let us denote the type of our lemma, $assoc$, using De Bruijn indexes.
+We have $t = \lambda \lambda \lambda . (0 \conc 1) \conc 2 \equiv 0 \conc (1 \conc 2)$. 
+A simple instantiation of $g_\square - g_i$ with $t_i$ yields $\{ 0 \mapsto xs , 1 \mapsto ys , 2 \mapsto zs \}$.
+
+\subsection{Library Structure}
 
 \begin{TODO}
-  \item Present operations, give a basic description of the by tactic.
   \item Explain how a user would use the by tactic ith his own relations. Explain the "API".
+\end{TODO}
+
+\section{Generalizing}
+
+\begin{TODO}
   \item Mention the generalizations, making space for Term-Indexed tries.
 \end{TODO}
 
-
-
 \bibliographystyle{alpha}
-\bibliography{references-thesis}
+\bibliography{references}
 
 \end{document}
 
