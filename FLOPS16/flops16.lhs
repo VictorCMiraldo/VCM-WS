@@ -396,7 +396,7 @@ Looking at both terms, it is not hard to infer that it is some sort of term-inte
 that is going to give the abstraction (context) to use it as a congruence. If we use 
 strucutral intersection, though, we have $g_\square = g_1 \cap g_2 = (x :: \square \conc \square)$,
 where $\square$ represents a hole, or the part in which the terms differ. We obtain a term with two 
-holles! We can lift definitions whose arguments are all holes, to a single hole.
+holes! We should lift definitions whose arguments are all holes, to a single hole.
 
 \[
 g_\square = g_1 \cap g_2 = (x \; \cons\; \square\; \conc\; \square) \stackrel{lift}{\rightarrow} (x \; \cons\; \square)
@@ -430,8 +430,79 @@ When we find the hole, we return the second term. If a diffence is encountered, 
 Let us denote the type of our lemma, $assoc$, using De Bruijn indexes.
 We have $t = \lambda \lambda \lambda . (0 \conc 1) \conc 2 \equiv 0 \conc (1 \conc 2)$. 
 A simple instantiation of $g_\square - g_i$ with $t_i$ yields $\{ 0 \mapsto xs , 1 \mapsto ys , 2 \mapsto zs \}$.
+Which is sufficient to generate the term that justifies the rewrite. The substitution 
+gives the parameters, in order, that should be applied to the lemma and the term $g_\square$ gives
+the context in which the rewrite happens.
 
 \subsection{Library Structure}
+
+Up to this point, we gave a small description of how we accomplish rewrites in Agda. 
+Yet, different domains might require different terms. For it is also important to 
+outline the structure of the library and its respective API.
+
+One interesting aspect of Agda is the possibility to have parametric modules,
+that is, modules that receive parameters when they are imported. 
+
+The top level module is \texttt{\small RW.RW}, and this module receives a list
+of \emph{Term Strategies}, or something of type \emph{TStratDB}. This strategy
+record specifies both a predicate to indicate when this strategy should be used,
+given the goal and lemma topmost relations, and how to construct the final
+term given the information computed internally. 
+
+Below we find, verbatim, the strategy provided for reasoning over
+propositional equality.
+
+\vskip 1em
+\begin{code}
+module RW.Strategy.PropEq where
+
+  pattern pat-≡  = (rdef (quote _≡_))
+
+  private
+    open UData
+
+    when : RTermName -> RTermName -> Bool
+    when pat-≡ pat-≡ = true
+    when _     _     = false
+
+    fixTrs : Trs -> RTerm ⊥ -> RTerm ⊥
+    fixTrs Symmetry term = rapp (rdef (quote sym)) (term ∷ [])
+
+    how : Name -> UData -> Err StratErr (RTerm ⊥)
+    how act (u-data g□ σ trs)
+      = i2 (rapp (rdef (quote cong))
+                 ( hole2Abs g□
+                 :: foldr fixTrs (makeApp act σ) trs
+                 :: [])
+           )
+
+  propeq-strat : TStrat
+  propeq-strat = record
+    { when = when
+    ; how  = how
+    }
+\end{code}
+\vskip 1em
+
+the \emph{when} predicate specifies that when both topmost relations are the propositional
+euality we should use \emph{how} to compute the final term. Whereas \emph{how}
+uses the information provided by the backend, which comes through in a record, and
+generates the correct congruence. We transform the hole of $g_\square$ into an abstraction,
+we append a call to \emph{symmetry} when needed and we apply the substitution's terms
+to the action supplied by the user. This is returned as a closed term which is
+later on plugged back in by Agda's reflection mechanism.
+
+In order to use the \emph{RW} library with this strategy, one should import it as follows.
+
+\vskip 1em
+\begin{code}
+open import RW.Strategy.PropEq using (propeq-strat)
+open import RW.RW (propeq-strat :: [])
+\end{code}
+\vskip 1em
+
+Note that \emph{RW.RW} receives a list of strategies, so one can mix them at run-time.
+
 
 \begin{TODO}
   \item Explain how a user would use the by tactic ith his own relations. Explain the "API".
