@@ -477,10 +477,10 @@ module RW.Strategy.PropEq where
     when patEq patEq = true
     when _     _     = false
 
-    fixTrs : Trs -> RTerm ⊥ -> RTerm ⊥
+    fixTrs : Trs -> RTerm BOT -> RTerm BOT
     fixTrs Symmetry term = rapp (rdef (quote sym)) (term :: [])
 
-    how : Name -> UData -> Err StratErr (RTerm ⊥)
+    how : Name -> UData -> Err StratErr (RTerm BOT)
     how act (u-data gSq s trs)
       = i2 (rapp (rdef (quote cong))
                  ( hole2Abs gSq
@@ -603,10 +603,51 @@ Everything happens inside a non-deterministic state monad, in which each state h
 an enviroment for variable substitution and a label, indicating where we
 last performed our rewrite.
 
+The label-rewriting rules are divided in three constructors. They can be \emph{gather}
+rules, \emph{transition} rules or \emph{final} rules. 
+
+\vskip 1em
+\begin{code}
+data Rule : Set where
+    Gr : bn -> Rule
+    Tr : bn -> bn -> Rule
+    Fr : bn -> Name -> Rule
+\end{code}
+\vskip 1em
+
+Cells, are defined as pair whith its first component being a partial map from \emph{RTerm} constructors to \emph{RTrie}; and its second component being a list of pairs. When we are traversing a term, upon finding a constructor, one search on the partial map for
+which \emph{RTrie} should we look next. Finding a binding symbol, on the other hand,
+will trigger a series of rewrites on our labels. \emph{RTries} are defined
+as having either a list of cells, or simply a list of rules.
+
+It is worth mentioning that we implemented our own partial maps, which 
+can be found on our repository. The \emph{PMap} module receives the index 
+type as a module parameter, therefore |IdxMap.to RTrie default| represents
+the Haskell type |(Data.Map RTermIdx RTrie, RTrie)|, where |RTermIdx| is a the same 
+as |RTerm|, with its recursive arguments dropped and the second component, |RTrie|,
+represents the default value to be returned by the (total) lookup function.
+
+\vskip 1em
+\begin{code}
+mutual
+  Cell : Set
+  Cell = IdxMap.to RTrie default
+       >< List (bn >< List Rule)
+
+  data RTrie : Set where
+      Fork : List Cell → RTrie
+      Leaf : List Rule → RTrie
+\end{code}
+\vskip 1em
+
+\subsection{Look up}
+
 
 \begin{TODO}
   \item Now a "lookup" and "insert" section followed by a conclusion and we should be ok.
 \end{TODO}
+
+\section{Conclusion}
 
 \bibliographystyle{alpha}
 \bibliography{references}
