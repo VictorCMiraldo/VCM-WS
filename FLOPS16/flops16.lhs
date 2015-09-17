@@ -64,6 +64,17 @@
 \begin{document}
 \maketitle
 
+\begin{abstract}
+Pen-and-paper mathematics is said to enjoy the advantage of being \emph{simple}. One
+can just write equations underneath equation, as long as we know a given equivalence between
+sub-equations hold. Computer systems tipically do enjoy that degree of elegance. One
+is forced to provide tons of purely mechanical code to acomplish the simplest of tasks.
+On this paper we address this problem, using Agda as our target. We describe the high-level
+of a generic rewrite engine for Agda, using meta-programming techniques to generate these
+mechanical pieces of code. We also tackle a generalization towards a fully automatic
+\emph{auto} tactic in Agda.
+\end{abstract}
+
 \section{Introduction}
 \label{sec:introduction}
 
@@ -79,9 +90,10 @@ using the \K{rewrite} keyword. When the need to perform equational reasoning ove
 arises, however, we still need to specify the substitutions manually in order to apply a theorem to a subterm. 
 This manual specification is error prone and purely mechanical, as we shall see in this paper.
 
-\begin{TODO}
-  \item a bit more glue around and a general rewriting of this, since the structure changed.
-\end{TODO}
+Not to mention the innability to use the \K{rewrite} keyword with relations other than
+propositional equality. Sometimes, it might be interesting to perform equational reasoning
+over other domains. Relational Algebra is an interesting example, as relational equality
+is a tricky concept to encode in the Intensional Theory of Types \cite{Miraldo2015}.
 
 Even though our framework is capable of figuring out which parameters to apply to the user supplied lemma,
 we want to go a step further. What if our framework could find which lemma to apply, given a database
@@ -97,7 +109,7 @@ works for justifying that $\pi \times (r^2 + 0) = \pi \times r^2$? Because there
 an instantiation, namelly $x \mapsto r^2$, which when applied to the lemma, with congruence $\pi \times \square$,
 closes the proof.
 
-Our initial objective was to code this structure for storing lemmas in Agda, and release
+After having a solid rewrite engine, our objective became coding this structure for storing lemmas in Agda, and release
 it as part of the rewriting framework of \cite{Miraldo2015}. Agda is a pure, functional language
 with a dependent type system built on top of the Theory of Types, Martin L\"{o}f, \cite{lof84}.
 We refer the reader to \cite{nords90,norell2009} for a good introduction on both the theory and practice of Agda.
@@ -456,41 +468,46 @@ propositional equality.
 \begin{code}
 module RW.Strategy.PropEq where
 
-  pattern pat-≡  = (rdef (quote _≡_))
+  pattern patEq  = (rdef (quote _===_))
 
   private
     open UData
 
     when : RTermName -> RTermName -> Bool
-    when pat-≡ pat-≡ = true
+    when patEq patEq = true
     when _     _     = false
 
     fixTrs : Trs -> RTerm ⊥ -> RTerm ⊥
-    fixTrs Symmetry term = rapp (rdef (quote sym)) (term ∷ [])
+    fixTrs Symmetry term = rapp (rdef (quote sym)) (term :: [])
 
     how : Name -> UData -> Err StratErr (RTerm ⊥)
-    how act (u-data g□ σ trs)
+    how act (u-data gSq s trs)
       = i2 (rapp (rdef (quote cong))
-                 ( hole2Abs g□
-                 :: foldr fixTrs (makeApp act σ) trs
+                 ( hole2Abs gSq
+                 :: foldr fixTrs (makeApp act s) trs
                  :: [])
            )
 
-  propeq-strat : TStrat
-  propeq-strat = record
+  propeqStrat : TStrat
+  propeqStrat = record
     { when = when
     ; how  = how
     }
 \end{code}
 \vskip 1em
 
-the \emph{when} predicate specifies that when both topmost relations are the propositional
+The constructors $rapp$ and $rdef$ works for building function applications and specifying
+definitions, just like $app$ and $def$ in \texttt{\small Reflection}. The $r$ prefix
+stands for our own term datatype. This allows a easier integration with
+future, possibly incompatible, versions of the Reflection module.
+
+The \emph{when} predicate specifies that when both topmost relations are the propositional
 euality we should use \emph{how} to compute the final term. Whereas \emph{how}
 uses the information provided by the backend, which comes through in a record, and
-generates the correct congruence. We transform the hole of $g_\square$ into an abstraction,
-we append a call to \emph{symmetry} when needed and we apply the substitution's terms
-to the action supplied by the user. This is returned as a closed term which is
-later on plugged back in by Agda's reflection mechanism.
+generates the correct congruence. We transform the hole of $gSq$, which represents $g_\square$, 
+into an abstraction, we append a call to \emph{symmetry} when needed and we apply the 
+substitution's terms to the action supplied by the user. This is returned as a closed 
+term which is later on plugged back in by Agda's reflection mechanism.
 
 In order to use the \emph{RW} library with this strategy, one should import it as follows.
 
@@ -501,17 +518,94 @@ open import RW.RW (propeq-strat :: [])
 \end{code}
 \vskip 1em
 
-Note that \emph{RW.RW} receives a list of strategies, so one can mix them at run-time.
+Note that \emph{RW.RW} receives a list of strategies, so one can use
+rewriting for different relations in the same equational reasoning proof.
+
+\section{Summary and Generalizations}
+
+We exposed the problem of rewriting in Agda and gave a description of how
+to use the metaprogramming features at hand to approach a solution. The solution
+described is in fact what is implemented and released as stable in our
+repository\footnote{\url{https://github.com/VictorCMiraldo/agda-rw}}. 
+
+Regardless, we explored how to perform one rewrite given one action.
+It is natural, hence, to ask how could one perform many rewrites given one action (for each rewrite)
+or one rewrite given a large choice of actions. It is clearly unfeasible to have many rewrites
+with many actions, as this would be a fully automatic theorem prover.
+
+We choose to tackle the second option; of one rewrite given an action database. 
+The reason for this is the absence of run-time type information for many identifiers,
+leading to a state-explosion for intermediate states of the \emph{many rewrites}.
+A broader explanation is found on \cite{Miraldo2015}.
+
+\section{Term-Indexed Tries}
+\label{sec:termtries}
+
+In this section we will tackle the \emph{one rewrite, many actions} generalization
+of our rewrite tactic. The underlying idea is to design some structure that can
+store terms such that looking up is better than a list lookup. We fetch inspiration
+on String-indexed tries, and on it's datatype generic cousin \cite{Hinze04}. 
+Our lookup routine, however, is slightly more complicated,
+as it has to deal with variable instantiation on the fly.
+
+Following the popular saying -- A picture is worth a thousand words -- let us begin
+with a simple representation. Just like a trie, our RTrie trie was designed to
+store names of actions to be performed, indexed by their respective type. Figure 
+\ref{fig:btrie1} shows the RTrie that stores the actions from figure \ref{fig:trie1terms}.
+For clarity, we have written the De Bruijn indexes of the respective variables as a superscript on
+their names.
+
+\begin{figure}[h]
+\begin{eqnarray*}
+  x^0 + 0 & \equiv & x^0 \\
+  x^0 + y^1 & \equiv & y^1 + x^0 \\
+  x^2 + (y^1 + z^0) & \equiv & (x^2 + y^1) + z^0
+\end{eqnarray*}
+\caption{Identity, Commutativity and Associativity for addition.}
+\label{fig:trie1terms}
+\end{figure}
+
+\begin{figure}[h]
+\include{img/BTrie1}
+\caption{RTrie for terms of figure \ref{fig:trie1terms}. Yellow and green circles represent DeBruijn indexes and literals, respectively.}
+\label{fig:btrie1}
+\end{figure}
+
+Let us illustrate the lookup of, for instance, $(2 \times x) + 0 \equiv 2 \times x$.
+The search starts by searching in the root's partial map for $\equiv$. We're given
+two tries! Since $\equiv^{\star_1}$ is a binary constructor. We proceed by looking for $(2 \times x) + 0$
+in the left child of $\equiv$. Well, our topmost operator is now a $+^{\star_2}$, we repeat the same idea and
+now, look for $(2 \times x)$ in the left child of the left $+$. Here, we can choose
+to instantiate variable 0 as $(2 \times x)$ and collect label $r_1$ or
+instantiate variable 2, with the same term, and collect label $l_1$. Since we cannot know beforehand
+which variable to instantiate, we instantiate both! At this point, the state of our lookup is
+$(0 \mapsto 2 \times x , r_1) \vee (2 \mapsto 2 \times x , l_1)$.
+We proceed to look for the literal $0$ in the right trie of $+^{\star_2}$, taking us to a leaf node with
+a rewrite rule stating $r_1 \vdash r_2$. This reads $r_1$ should be rewritten by $r_2$. We apply
+this to all states we have so far. Those that are not labeled $r_1$ are pruned. 
+However, we could also instantiate variable 1 at that node, so
+we add a new state $(0 \mapsto 2 \times x, 1 \mapsto 0 , k_1)$. At this step,
+our state becomes $(0 \mapsto 2 \times x , r_2) \vee (0 \mapsto 2 \times x, 1 \mapsto 0 , k_1)$. 
+
+We go up one level and find that
+now, we should look for $2 \times x$ at the right child of $\equiv^{\star_1}$. We cannot traverse the
+right child labeled with a $+$, leaving us with to compare the instantiation gathered for
+variable 0 in the left-hand-side of $\equiv^{\star_1}$ to $2 \times x$. They are indeed the same,
+which allows us to apply the rule $r_2 \vdash RI$. Which concludes the search, rewriting label $r_2$
+by $RI$, or, any other code for \F{+-right-identity}. By returning not only the final label, but
+also the environment gathered, we get the instantiation for variables for free.
+The result of such search should be $(0 \mapsto 2 \times x , RI) :: []$.
+
+This small worked example already provides a few insights not only on how to code lookup, but
+also on how to define our RTrie. We have faced two kinds of nodes. Fork nodes, which
+are composed by a list of cells, and, Leaf nodes, which contain a list of (rewrite) rules.
+Everything happens inside a non-deterministic state monad, in which each state has
+an enviroment for variable substitution and a label, indicating where we
+last performed our rewrite.
 
 
 \begin{TODO}
-  \item Explain how a user would use the by tactic ith his own relations. Explain the "API".
-\end{TODO}
-
-\section{Generalizing}
-
-\begin{TODO}
-  \item Mention the generalizations, making space for Term-Indexed tries.
+  \item Now a "lookup" and "insert" section followed by a conclusion and we should be ok.
 \end{TODO}
 
 \bibliographystyle{alpha}
@@ -595,60 +689,6 @@ arises when we start to allow variables in the index.
         Whereas on term instantiations there is no backing track, as the Trie has more structure.
 \end{TODO}
 
-\section{Term-Indexed Tries}
-\label{sec:termtries}
-
-Following the popular saying -- A picture is worth a thousand words -- let us begin
-with a simple representation. Just like a trie, our RTrie trie was designed to
-store names of actions to be performed, indexed by their respective type. Figure 
-\ref{fig:btrie1} shows the RTrie that stores the actions from figure \ref{fig:trie1terms}.
-For clarity, we have written the De Bruijn indexes of the respective variables as a superscript on
-their names.
-
-\begin{figure}[h]
-\begin{eqnarray*}
-  x^0 + 0 & \equiv & x^0 \\
-  x^0 + y^1 & \equiv & y^1 + x^0 \\
-  x^2 + (y^1 + z^0) & \equiv & (x^2 + y^1) + z^0
-\end{eqnarray*}
-\caption{Identity, Commutativity and Associativity for addition.}
-\label{fig:trie1terms}
-\end{figure}
-
-\begin{figure}[h]
-\include{img/BTrie1}
-\caption{RTrie for terms of figure \ref{fig:trie1terms}. Yellow and green circles represent DeBruijn indexes and literals, respectively.}
-\label{fig:btrie1}
-\end{figure}
-
-Let us illustrate the lookup of, for instance, $(2 \times x) + 0 \equiv 2 \times x$.
-The search starts by searching in the root's partial map for $\equiv$. We're given
-two tries! Since $\equiv^{\star_1}$ is a binary constructor. We proceed by looking for $(2 \times x) + 0$
-in the left child of $\equiv$. Well, our topmost operator is now a $+^{\star_2}$, we repeat the same idea and
-now, look for $(2 \times x)$ in the left child of the left $+$. Here, we can choose
-to instantiate variable 0 as $(2 \times x)$ and collect label $r_1$ or
-instantiate variable 2, with the same term, and collect label $l_1$. Since we cannot know beforehand
-which variable to instantiate, we instantiate both! At this point, the state of our lookup is
-$(0 \mapsto 2 \times x , r_1) \vee (2 \mapsto 2 \times x , l_1)$.
-We proceed to look for the literal $0$ in the right trie of $+^{\star_2}$, taking us to a leaf node with
-a rewrite rule stating $r_1 \vdash r_2$. This reads $r_1$ should be rewritten by $r_2$. We apply
-this to all states we have so far. Those that are not labeled $r_1$ are pruned. 
-However, we could also instantiate variable 1 at that node, so
-we add a new state $(0 \mapsto 2 \times x, 1 \mapsto 0 , k_1)$. At this step,
-our state becomes $(0 \mapsto 2 \times x , r_2) \vee (0 \mapsto 2 \times x, 1 \mapsto 0 , k_1)$. 
-
-We go up one level and find that
-now, we should look for $2 \times x$ at the right child of $\equiv^{\star_1}$. We cannot traverse the
-right child labeled with a $+$, leaving us with to compare the instantiation gathered for
-variable 0 in the left-hand-side of $\equiv^{\star_1}$ to $2 \times x$. They are indeed the same,
-which allows us to apply the rule $r_2 \vdash RI$. Which concludes the search, rewriting label $r_2$
-by $RI$, or, any other code for \F{+-right-identity}. By returning not only the final label, but
-also the environment gathered, we get the instantiation for variables for free.
-The result of such search should be $(0 \mapsto 2 \times x , RI) :: []$.
-
-This small worked example already provides a few insights not only on how to code lookup, but
-also on how to define our RTrie. We have faced two kinds of nodes. Fork nodes, which
-are composed by a list of cells, and, Leaf nodes, which contain a list of (rewrite) rules.
 
 \begin{TODO}
   \item Show the BTrie typeclass, prove that every strictly positive functor
